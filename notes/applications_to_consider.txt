@@ -1,0 +1,6 @@
+OCR: Optical Character Recognition
+VLM: Vision-Language Models
+CLIP: Contrastive Language-Image Pretraining (Vision encoder and Text encoder sharing the same embedding space)
+MoE: mixture-of-experts
+Hugging Face library(for CLIP)
+Tesseract
