@@ -1,0 +1,29 @@
+1. Bar chart
+
+2. Grouped bar chart
+
+3. Stacked bar chart
+
+4. Line chart
+
+5. Multi-line chart
+
+6. Scatter plot
+
+7. Bubble chart
+
+8. Histogram
+
+9. Box plot
+
+10. Violin plot
+
+11. Pie chart
+
+12. Donut chart
+
+13. Area chart
+
+14. Heatmap
+
+15. Error-bar plot

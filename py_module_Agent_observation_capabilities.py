@@ -49,6 +49,12 @@ import cv2
 import pytesseract
 from scipy.ndimage import label, find_objects
 
+import inspect
+
+def _filter_kwargs_for(func, kwargs):
+    valid = set(inspect.signature(func).parameters.keys())
+    return {k: v for k, v in kwargs.items() if k in valid}
+
 
 # ============================================================
 # FUNCTION 1: GET PNG ATTRIBUTES
@@ -360,23 +366,18 @@ def extract_objects(
 
 def detect_chart_primitives(
     image_path,
-    min_contour_area=200,
     canny_low=50,
     canny_high=150,
     hough_threshold=80,
     min_line_length=60,
     max_line_gap=10,
-    # bar filtering (replaces bar_min_aspect-only logic)
-    min_bar_width=10,
-    min_bar_height=10,
-    min_bar_extent=0.60
+    angle_tol_deg=5.0
 ):
     """
-    Extract low-level geometric primitives from a chart image.
+    Detect low-level geometric primitives from a chart image.
 
-    Detected primitives:
-        - Bar-like rectangles (via thresholded blobs + extent filter)
-        - Long straight lines (axes / grid lines) via HoughLinesP on edges
+    This version detects LINES ONLY.
+    No rectangles, no bars, no semantic interpretation.
 
     Returns:
         primitives (list of dict)
@@ -394,57 +395,14 @@ def detect_chart_primitives(
 
     primitives = []
 
-    # ------------------------------
-    # RECTANGLES (BARS) - robust blob detection
-    # ------------------------------
-    # Invert threshold to make bars/ink white on black background
-    _, thresh = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
-
-    # Close small gaps (helps bars become solid)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    contours, _ = cv2.findContours(
-        thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
-
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_contour_area:
-            continue
-
-        x, y, w, h = cv2.boundingRect(cnt)
-        if w <= 0 or h <= 0:
-            continue
-
-        if w < min_bar_width or h < min_bar_height:
-            continue
-
-        # Extent = how much of the bounding box is filled (bars ~ high extent)
-        extent = area / float(w * h)
-
-        if extent >= min_bar_extent:
-            primitives.append({
-                "type": "rectangle",
-                "subtype": "bar_candidate",
-                "bbox": [int(x), int(y), int(w), int(h)],
-                "area": float(area),
-                "extent": float(extent)
-            })
-
-            cv2.rectangle(
-                annotated_img,
-                (x, y),
-                (x + w, y + h),
-                (0, 255, 0),
-                2
-            )
-
-    # ------------------------------
-    # LINES (AXES / GRIDS) - Hough on edges
-    # ------------------------------
+    # --------------------------------------------------
+    # EDGE DETECTION
+    # --------------------------------------------------
     edges = cv2.Canny(gray, canny_low, canny_high)
 
+    # --------------------------------------------------
+    # LINE DETECTION (Probabilistic Hough)
+    # --------------------------------------------------
     lines = cv2.HoughLinesP(
         edges,
         rho=1,
@@ -454,30 +412,56 @@ def detect_chart_primitives(
         maxLineGap=max_line_gap
     )
 
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            length = float(np.hypot(x2 - x1, y2 - y1))
+    if lines is None:
+        return [], annotated_img
 
-            if length < min_line_length:
-                continue
+    # --------------------------------------------------
+    # LINE FILTERING + CLASSIFICATION
+    # --------------------------------------------------
+    for line in lines:
+        x1, y1, x2, y2 = map(int, line[0])
 
-            primitives.append({
-                "type": "line",
-                "start": [int(x1), int(y1)],
-                "end": [int(x2), int(y2)],
-                "length": float(length)
-            })
+        dx = x2 - x1
+        dy = y2 - y1
+        length = float(np.hypot(dx, dy))
 
-            cv2.line(
-                annotated_img,
-                (x1, y1),
-                (x2, y2),
-                (255, 0, 0),
-                2
-            )
+        if length < min_line_length:
+            continue
+
+        angle_rad = np.arctan2(dy, dx)
+        angle_deg = np.degrees(angle_rad)
+
+        # Normalize angle to [-90, 90]
+        if angle_deg < -90:
+            angle_deg += 180
+        elif angle_deg > 90:
+            angle_deg -= 180
+
+        orientation = None
+        if abs(angle_deg) <= angle_tol_deg:
+            orientation = "horizontal"
+        elif abs(abs(angle_deg) - 90) <= angle_tol_deg:
+            orientation = "vertical"
+        else:
+            continue  # discard diagonal noise
+
+        primitive = {
+            "type": "line",
+            "orientation": orientation,
+            "start": [x1, y1],
+            "end": [x2, y2],
+            "length": length,
+            "angle_deg": angle_deg
+        }
+
+        primitives.append(primitive)
+
+        # Visualization
+        color = (255, 0, 0) if orientation == "horizontal" else (0, 255, 0)
+        cv2.line(annotated_img, (x1, y1), (x2, y2), color, 2)
 
     return primitives, annotated_img
+
 
 
 
@@ -850,10 +834,13 @@ def extract_primitives_and_text_to_json(
     attrs = get_png_attributes(image_path)
     W, H = int(attrs["width"]), int(attrs["height"])
 
-    # --- run primitives (Function 6) ---
+    filtered_kwargs = _filter_kwargs_for(
+        detect_chart_primitives, primitives_kwargs
+    )
+
     primitives, _annotated = detect_chart_primitives(
         image_path=image_path,
-        **primitives_kwargs
+        **filtered_kwargs
     )
 
     # Optionally add bbox to line primitives
@@ -940,11 +927,7 @@ def _offset_primitives(primitives, dx, dy):
     for p in primitives:
         p = dict(p)  # shallow copy
 
-        if p["type"] == "rectangle":
-            x, y, w, h = p["bbox"]
-            p["bbox"] = [x + dx, y + dy, w, h]
-
-        elif p["type"] == "line":
+        if p["type"] == "line":
             x1, y1 = p["start"]
             x2, y2 = p["end"]
             p["start"] = [x1 + dx, y1 + dy]
@@ -1158,10 +1141,15 @@ def detect_primitives_text_aware_global_coords(
     tmp_roi = output_dir / "_plot_roi.png"
     cv2.imwrite(str(tmp_roi), plot_roi)
 
+    filtered_kwargs = _filter_kwargs_for(
+        detect_chart_primitives, primitives_kwargs
+    )
+
     primitives_roi, annotated_roi = detect_chart_primitives(
         image_path=str(tmp_roi),
-        **primitives_kwargs
+        **filtered_kwargs
     )
+
 
     # Translate primitives back to global coords
     primitives = _offset_primitives(
@@ -1176,16 +1164,7 @@ def detect_primitives_text_aware_global_coords(
     annotated_full = img.copy()
 
     for p in primitives:
-        if p["type"] == "rectangle":
-            x, y, w, h = p["bbox"]
-            cv2.rectangle(
-                annotated_full,
-                (x, y),
-                (x + w, y + h),
-                (0, 255, 0),
-                2
-            )
-        elif p["type"] == "line":
+        if p["type"] == "line":
             x1, y1 = p["start"]
             x2, y2 = p["end"]
             cv2.line(
@@ -1229,4 +1208,157 @@ def detect_primitives_text_aware_global_coords(
     }
 
 
+def infer_axes_and_bars_from_primitives(
+    primitives,
+    image_width,
+    image_height,
+    x_tol=8,
+    y_tol=6
+):
+    horizontals = [p for p in primitives if p["orientation"] == "horizontal"]
+    verticals   = [p for p in primitives if p["orientation"] == "vertical"]
 
+    # X-axis (baseline): lowest + longest horizontal
+    x_axis = max(horizontals, key=lambda p: (p["start"][1], p["length"]))
+    baseline_y = x_axis["start"][1]
+
+    # Y-axis: leftmost + longest vertical
+    y_axis = min(verticals, key=lambda p: (p["start"][0], -p["length"]))
+
+    # Remove axes
+    horizontals = [h for h in horizontals if h is not x_axis]
+    verticals   = [v for v in verticals if v is not y_axis]
+
+    # --------------------------------------------------
+    # Filter verticals: keep only bar-side candidates
+    # --------------------------------------------------
+    plot_height = baseline_y - min(h["start"][1] for h in horizontals)
+
+    verticals = [
+        v for v in verticals
+        if v["length"] < 0.6 * plot_height
+    ]
+
+
+    # Cluster verticals by x
+    verticals.sort(key=lambda v: v["start"][0])
+    clusters = []
+
+    for v in verticals:
+        x = v["start"][0]
+        if not clusters or abs(clusters[-1][0]["start"][0] - x) > x_tol:
+            clusters.append([v])
+        else:
+            clusters[-1].append(v)
+
+    cluster_xs = [
+        int(sum(v["start"][0] for v in cluster) / len(cluster))
+        for cluster in clusters
+    ]
+
+    bars = []
+
+    for i in range(0, len(cluster_xs) - 1, 2):
+        left_x, right_x = cluster_xs[i], cluster_xs[i + 1]
+
+        # --------------------------------------------------
+        # 1) Infer expected bar-top from vertical edges
+        # --------------------------------------------------
+        vertical_tops = []
+
+        for v in verticals:
+            vx = v["start"][0]
+            if abs(vx - left_x) <= x_tol or abs(vx - right_x) <= x_tol:
+                vy_top = min(v["start"][1], v["end"][1])
+                if vy_top < baseline_y:
+                    vertical_tops.append(vy_top)
+
+        if not vertical_tops:
+            continue
+
+        expected_top_y = int(sum(vertical_tops) / len(vertical_tops))
+
+        # --------------------------------------------------
+        # 2) Select horizontal line near that y
+        # --------------------------------------------------
+        candidate_tops = []
+
+        for h in horizontals:
+            hy = h["start"][1]
+            if abs(hy - expected_top_y) <= y_tol:
+                hx1, hx2 = sorted([h["start"][0], h["end"][0]])
+                if hx1 <= left_x + x_tol and hx2 >= right_x - x_tol:
+                    candidate_tops.append(hy)
+
+        if not candidate_tops:
+            continue
+
+        top_y = min(candidate_tops)
+
+        bars.append({
+            "bbox_xyxy": [
+                int(left_x),
+                int(top_y),
+                int(right_x),
+                int(baseline_y)
+            ]
+        })
+
+
+    return {
+        "axes": {
+            "x_axis": x_axis,
+            "y_axis": y_axis
+        },
+        "bars": bars
+    }
+
+import cv2
+
+def annotate_axes_and_bars(
+    image_path,
+    inference,
+    output_path
+):
+    img = cv2.imread(image_path)
+    if img is None:
+        raise RuntimeError(f"Could not load image: {image_path}")
+
+    # --- draw axes ---
+    x_axis = inference["axes"]["x_axis"]
+    y_axis = inference["axes"]["y_axis"]
+
+    cv2.line(
+        img,
+        tuple(x_axis["start"]),
+        tuple(x_axis["end"]),
+        (0, 0, 255),  # red
+        3
+    )
+
+    cv2.line(
+        img,
+        tuple(y_axis["start"]),
+        tuple(y_axis["end"]),
+        (0, 0, 255),  # red
+        3
+    )
+
+    # --- draw bars ---
+    for bar in inference["bars"]:
+        x1, y1, x2, y2 = bar["bbox_xyxy"]
+        cv2.rectangle(
+            img,
+            (x1, y1),
+            (x2, y2),
+            (0, 255, 0),  # green
+            2
+        )
+
+    cv2.imwrite(output_path, img)
+
+import json
+
+def save_inference_json(inference, output_path):
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(inference, f, indent=2)
