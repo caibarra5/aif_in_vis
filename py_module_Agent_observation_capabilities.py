@@ -1212,98 +1212,34 @@ def infer_axes_and_bars_from_primitives(
     primitives,
     image_width,
     image_height,
-    x_tol=8,
     y_tol=6
 ):
     horizontals = [p for p in primitives if p["orientation"] == "horizontal"]
     verticals   = [p for p in primitives if p["orientation"] == "vertical"]
 
-    # X-axis (baseline): lowest + longest horizontal
+    # --- axes ---
     x_axis = max(horizontals, key=lambda p: (p["start"][1], p["length"]))
+    y_axis = min(verticals, key=lambda p: (p["start"][0], -p["length"]))
     baseline_y = x_axis["start"][1]
 
-    # Y-axis: leftmost + longest vertical
-    y_axis = min(verticals, key=lambda p: (p["start"][0], -p["length"]))
-
-    # Remove axes
-    horizontals = [h for h in horizontals if h is not x_axis]
-    verticals   = [v for v in verticals if v is not y_axis]
-
-    # --------------------------------------------------
-    # Filter verticals: keep only bar-side candidates
-    # --------------------------------------------------
-    plot_height = baseline_y - min(h["start"][1] for h in horizontals)
-
-    verticals = [
-        v for v in verticals
-        if v["length"] < 0.6 * plot_height
+    # --- bar tops ---
+    bar_tops = [
+        h for h in horizontals
+        if h is not x_axis
+        and h["length"] < 0.4 * x_axis["length"]
+        and h["start"][1] < baseline_y - y_tol
     ]
 
+    bar_tops.sort(key=lambda h: min(h["start"][0], h["end"][0]))
 
-    # Cluster verticals by x
-    verticals.sort(key=lambda v: v["start"][0])
-    clusters = []
-
-    for v in verticals:
-        x = v["start"][0]
-        if not clusters or abs(clusters[-1][0]["start"][0] - x) > x_tol:
-            clusters.append([v])
-        else:
-            clusters[-1].append(v)
-
-    cluster_xs = [
-        int(sum(v["start"][0] for v in cluster) / len(cluster))
-        for cluster in clusters
+    bars = [
+        {
+            "top_y": int(h["start"][1]),
+            "height_px": int(baseline_y - h["start"][1]),
+            "x_range": sorted([h["start"][0], h["end"][0]])
+        }
+        for h in bar_tops
     ]
-
-    bars = []
-
-    for i in range(0, len(cluster_xs) - 1, 2):
-        left_x, right_x = cluster_xs[i], cluster_xs[i + 1]
-
-        # --------------------------------------------------
-        # 1) Infer expected bar-top from vertical edges
-        # --------------------------------------------------
-        vertical_tops = []
-
-        for v in verticals:
-            vx = v["start"][0]
-            if abs(vx - left_x) <= x_tol or abs(vx - right_x) <= x_tol:
-                vy_top = min(v["start"][1], v["end"][1])
-                if vy_top < baseline_y:
-                    vertical_tops.append(vy_top)
-
-        if not vertical_tops:
-            continue
-
-        expected_top_y = int(sum(vertical_tops) / len(vertical_tops))
-
-        # --------------------------------------------------
-        # 2) Select horizontal line near that y
-        # --------------------------------------------------
-        candidate_tops = []
-
-        for h in horizontals:
-            hy = h["start"][1]
-            if abs(hy - expected_top_y) <= y_tol:
-                hx1, hx2 = sorted([h["start"][0], h["end"][0]])
-                if hx1 <= left_x + x_tol and hx2 >= right_x - x_tol:
-                    candidate_tops.append(hy)
-
-        if not candidate_tops:
-            continue
-
-        top_y = min(candidate_tops)
-
-        bars.append({
-            "bbox_xyxy": [
-                int(left_x),
-                int(top_y),
-                int(right_x),
-                int(baseline_y)
-            ]
-        })
-
 
     return {
         "axes": {
@@ -1313,6 +1249,8 @@ def infer_axes_and_bars_from_primitives(
         "bars": bars
     }
 
+
+
 import cv2
 
 def annotate_axes_and_bars(
@@ -1320,6 +1258,8 @@ def annotate_axes_and_bars(
     inference,
     output_path
 ):
+    import cv2
+
     img = cv2.imread(image_path)
     if img is None:
         raise RuntimeError(f"Could not load image: {image_path}")
@@ -1332,7 +1272,7 @@ def annotate_axes_and_bars(
         img,
         tuple(x_axis["start"]),
         tuple(x_axis["end"]),
-        (0, 0, 255),  # red
+        (0, 0, 255),
         3
     )
 
@@ -1340,22 +1280,28 @@ def annotate_axes_and_bars(
         img,
         tuple(y_axis["start"]),
         tuple(y_axis["end"]),
-        (0, 0, 255),  # red
+        (0, 0, 255),
         3
     )
 
-    # --- draw bars ---
+    baseline_y = x_axis["start"][1]
+
+    # --- draw bars (reconstructed bbox) ---
     for bar in inference["bars"]:
-        x1, y1, x2, y2 = bar["bbox_xyxy"]
+        x1, x2 = bar["x_range"]
+        y1 = bar["top_y"]
+        y2 = baseline_y
+
         cv2.rectangle(
             img,
             (x1, y1),
             (x2, y2),
-            (0, 255, 0),  # green
+            (0, 255, 0),
             2
         )
 
-    cv2.imwrite(output_path, img)
+    cv2.imwrite(str(output_path), img)
+
 
 import json
 
