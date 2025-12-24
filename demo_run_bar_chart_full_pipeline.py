@@ -3,7 +3,7 @@ from py_module_Agent_observation_capabilities import (
 )
 
 image_path = "bar_graph_example_5bars.png"
-output_dir = "demo_bar_chart_full_pipeline"
+output_dir = "dir_demo_bar_chart_full_pipeline"
 
 result = run_bar_chart_full_pipeline(
     image_path=image_path,
