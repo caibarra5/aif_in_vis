@@ -1308,3 +1308,103 @@ import json
 def save_inference_json(inference, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(inference, f, indent=2)
+
+
+# ============================================================
+# FUNCTION 12: FULL BAR-CHART PIPELINE (TEXT-AWARE → INFERENCE)
+# ============================================================
+
+def run_bar_chart_full_pipeline(
+    image_path,
+    output_dir,
+    primitives_kwargs=None,
+    ocr_kwargs=None
+):
+    """
+    End-to-end bar chart pipeline:
+      1) Text-aware primitive detection (global coords)
+      2) Axis + bar inference
+      3) JSON outputs
+      4) Annotated images
+
+    Args:
+        image_path (str):
+            Path to chart image.
+        output_dir (str or Path):
+            Output directory.
+        primitives_kwargs (dict):
+            Passed to detect_chart_primitives.
+        ocr_kwargs (dict):
+            Passed to extract_chart_text_ocr.
+
+    Returns:
+        dict:
+            Summary with paths and inference results.
+    """
+    import json
+    import cv2
+    from pathlib import Path
+
+    if primitives_kwargs is None:
+        primitives_kwargs = {}
+    if ocr_kwargs is None:
+        ocr_kwargs = {}
+
+    output_dir = Path(output_dir)
+
+    # --------------------------------------------------
+    # STEP 1: Text-aware primitive detection
+    # --------------------------------------------------
+    detection_result = detect_primitives_text_aware_global_coords(
+        image_path=image_path,
+        output_dir=output_dir,
+        primitives_kwargs=primitives_kwargs,
+        ocr_kwargs=ocr_kwargs
+    )
+
+    # --------------------------------------------------
+    # STEP 2: Load primitives
+    # --------------------------------------------------
+    with open(output_dir / "primitives.json", "r", encoding="utf-8") as f:
+        primitives = json.load(f)
+
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise RuntimeError(f"Could not load image: {image_path}")
+
+    H, W = img.shape[:2]
+
+    # --------------------------------------------------
+    # STEP 3: Infer axes and bars
+    # --------------------------------------------------
+    inference = infer_axes_and_bars_from_primitives(
+        primitives,
+        image_width=W,
+        image_height=H
+    )
+
+    # --------------------------------------------------
+    # STEP 4: Save inference JSON
+    # --------------------------------------------------
+    inference_json_path = output_dir / "inferred_axes_and_bars.json"
+    save_inference_json(inference, inference_json_path)
+
+    # --------------------------------------------------
+    # STEP 5: Annotate image
+    # --------------------------------------------------
+    annotated_path = output_dir / "annotated_axes_and_bars.png"
+    annotate_axes_and_bars(
+        image_path=image_path,
+        inference=inference,
+        output_path=annotated_path
+    )
+
+    return {
+        "image_path": str(image_path),
+        "output_dir": str(output_dir),
+        "detection": detection_result,
+        "inference_json": str(inference_json_path),
+        "annotated_image": str(annotated_path),
+        "num_bars": len(inference.get("bars", [])),
+        "num_axes": len(inference.get("axes", []))
+    }
