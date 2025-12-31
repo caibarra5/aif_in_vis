@@ -1408,3 +1408,91 @@ def run_bar_chart_full_pipeline(
         "num_bars": len(inference.get("bars", [])),
         "num_axes": len(inference.get("axes", []))
     }
+
+
+import json
+import math
+
+import json
+
+def map_bar_heights_to_xlabels_from_jsons(
+    ocr_json_path,
+    inferred_json_path
+):
+    """
+    Map bar heights to x-axis labels using OCR and inferred primitives.
+
+    Args:
+        ocr_json_path (str): path to ocr_data.json
+        inferred_json_path (str): path to inferred_axes_and_bars.json
+
+    Returns:
+        dict[str, float]: {x_label: bar_height}
+    """
+
+    # --------------------------------------------------
+    # Load JSONs
+    # --------------------------------------------------
+    with open(ocr_json_path, "r", encoding="utf-8") as f:
+        ocr_items = json.load(f)
+
+    with open(inferred_json_path, "r", encoding="utf-8") as f:
+        inferred = json.load(f)
+
+    # --------------------------------------------------
+    # Extract y-axis numeric ticks
+    # --------------------------------------------------
+    y_ticks = []
+    for it in ocr_items:
+        try:
+            val = float(it["text"])
+        except ValueError:
+            continue
+
+        y_mid = it["top"] + it["height"] / 2
+        y_ticks.append((y_mid, val))
+
+    if len(y_ticks) < 2:
+        raise RuntimeError("Not enough y-axis ticks to infer scale")
+
+    # sort top → bottom
+    y_ticks.sort(key=lambda t: t[0])
+
+    # --------------------------------------------------
+    # Pixel → value linear mapping
+    # --------------------------------------------------
+    y_pixels = [t[0] for t in y_ticks]
+    y_values = [t[1] for t in y_ticks]
+
+    a = (y_values[-1] - y_values[0]) / (y_pixels[-1] - y_pixels[0])
+    b = y_values[0] - a * y_pixels[0]
+
+    def pixel_to_value(y_px):
+        return a * y_px + b
+
+    # --------------------------------------------------
+    # Extract x-axis labels
+    # --------------------------------------------------
+    x_labels = []
+    for it in ocr_items:
+        if not it["text"].replace(".", "").isdigit():
+            x_mid = it["left"] + it["width"] / 2
+            x_labels.append((x_mid, it["text"]))
+
+    # --------------------------------------------------
+    # Match bars to x-labels
+    # --------------------------------------------------
+    result = {}
+
+    for bar in inferred["bars"]:
+        bar_mid_x = sum(bar["x_range"]) / 2
+
+        label_mid, label = min(
+            x_labels,
+            key=lambda t: abs(t[0] - bar_mid_x)
+        )
+
+        bar_value = pixel_to_value(bar["top_y"])
+        result[label] = int(round(bar_value, 2))
+
+    return result
