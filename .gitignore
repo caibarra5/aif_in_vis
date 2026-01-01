@@ -17,7 +17,6 @@ models/
 .venv/
 venv/
 
-notes/
 
 # Pipeline output directories
 dir_demo_*/

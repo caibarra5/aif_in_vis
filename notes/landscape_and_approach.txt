@@ -1,0 +1,206 @@
+We are basically doing plot digitizing.
+
+Apporach to sample observations:
+1. Use chatgpt api 
+2. Use CNN with randomized (well samples) graphs and graph elements
+3. Use VLM with randomized (well samples) graphs and graph elements
+4. Plot parser + NN (maybe) 
+
+Set beliefs to cosine similarities?
+No. Relate them via the log evidens (likelihood).
+
+
+
+
+1. What exists “out there” (reality check)
+A. Plot / chart type classification
+
+Goal: “What kind of plot is this?”
+
+Research benchmarks (not libraries):
+
+FigureQA, PlotQA, ChartOCR
+
+Do plot-type classification and sometimes element detection
+
+Mostly synthetic data, brittle, research code
+
+End-to-end Convolutional Neural Network (CNN) classifiers
+
+Input image → label (bar, line, scatter)
+
+Easy to use, opaque, throw away structure
+
+Bottom line:
+Plot type classification exists mostly as research code or CNN demos, not as clean tools.
+
+B. Plot element detection
+
+Goal: “Where are the bars, axes, labels, ticks?”
+
+Classical Computer Vision (CV):
+
+OpenCV: lines, contours, shapes
+
+Optical Character Recognition (OCR): Tesseract
+
+Object detection models:
+
+YOLO, Detectron2 (if trained)
+
+Document layout tools:
+
+PubLayNet, LayoutLM (layout, not plot semantics)
+
+Bottom line:
+Element detection is solved at a low level, but not semantically grounded.
+
+C. Plot question answering
+
+Goal: “What does this plot say?”
+
+Chart Question Answering (Chart QA) research models:
+
+PlotQA, FigureQA
+
+Trained end-to-end
+
+Approximate, dataset-specific
+
+Vision–Language Models (VLMs):
+
+Can answer qualitative questions
+
+Human-like, uncertain, sometimes wrong
+
+Bottom line:
+No robust, general, deployable library exists for true plot understanding.
+
+2. The three main paths you can take
+Path 1 — Exact, symbolic chart parsing (machine-like)
+
+What it is:
+
+Detect axes, ticks, bars
+
+Reconstruct coordinate system
+
+Extract numeric data
+
+Answer questions exactly
+
+Pros:
+
+Accurate
+
+Explainable
+
+Deterministic
+
+Cons:
+
+Engineering-heavy
+
+Not human-like
+
+Best if: you want correctness and data extraction.
+
+Path 2 — Human-like heuristic understanding (bounded, approximate)
+
+What it is:
+
+Coarse plot type recognition
+
+Salient element detection
+
+Ordinal / qualitative reasoning
+
+Uncertainty tolerated
+
+Typical answers:
+
+“This bar is larger”
+
+“Trend seems negative”
+
+“Category B dominates”
+
+Tools:
+
+Vision–Language Models (VLMs)
+
+Lightweight CV + heuristics
+
+Pros:
+
+Fast
+
+Flexible
+
+Matches human behavior
+
+Cons:
+
+Imprecise
+
+Occasionally wrong
+
+Best if: you want cognitive realism, not exact measurement.
+
+Path 3 — Hybrid (most realistic and flexible)
+
+What it is:
+
+Coarse plot recognition (CNN or VLM)
+
+Conditional element detection (CV)
+
+Heuristic or probabilistic reasoning
+
+Pros:
+
+Balanced
+
+Extendable
+
+Human-like but grounded
+
+Cons:
+
+Still a system you assemble
+
+Best if: you want a believable perceptual agent.
+
+3. Key takeaways (the “remember this” part)
+
+There is no single library that:
+
+identifies plot type,
+
+recognizes elements,
+
+and answers questions robustly.
+
+Existing tools solve pieces, not the whole.
+
+“Recognition” in practice = classification + inference under prior categories.
+
+Exact chart parsing ≠ human perception.
+
+Human-like plot understanding is:
+
+approximate,
+
+qualitative,
+
+uncertain,
+
+heuristic.
+
+4. Practical recommendation (short)
+
+If you want exact answers → symbolic chart parser.
+
+If you want human-like answers → VLMs + heuristics.
+
+If you want flexibility → hybrid pipeline.

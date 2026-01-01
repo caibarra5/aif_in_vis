@@ -1,0 +1,36 @@
+Pixels
+ ↓
+CV primitives (rectangles, lines, circles)   ← OpenCV
+ ↓
+Semantic hypotheses (“bar”, “axis”, “point”) ← CLIP / rules
+ ↓
+Beliefs & relations                          ← Active Inference
+
+
+
+Embed the chatGPT API into AIF as the perception layer.
+
+Deprecated ↓
+
+Image
+ ↓
+Fast plot-type recognition (coarse, fallible)
+ ↓
+Salient element detection (not exhaustive)
+ ↓
+Heuristic judgments (ordinal, relative, qualitative)
+ ↓
+Uncertain answers (“probably”, “roughly”, “seems”)
+
+VLM-based:
+Image
+ ↓
+VLM: infer plot type (tentative)
+ ↓
+VLM: describe salient structure
+ ↓
+Optional CV: crop / highlight regions
+ ↓
+VLM: answer qualitative questions
+
+
