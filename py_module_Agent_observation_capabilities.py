@@ -1310,6 +1310,81 @@ def save_inference_json(inference, output_path):
         json.dump(inference, f, indent=2)
 
 
+def annotate_text_and_axes_and_bars(
+    image_path,
+    ocr_items,
+    inference,
+    output_path
+):
+    """
+    Draw OCR boxes + inferred axes + inferred bars on the same image.
+
+    Args:
+        image_path (str or Path)
+        ocr_items (list[dict]): from ocr_data.json
+        inference (dict): from inferred_axes_and_bars.json
+        output_path (str or Path)
+    """
+    import cv2
+
+    img = cv2.imread(str(image_path))
+    if img is None:
+        raise RuntimeError(f"Could not load image: {image_path}")
+
+    # --------------------------------------------------
+    # Draw OCR boxes (orange)
+    # --------------------------------------------------
+    for it in ocr_items:
+        x1 = int(it["left"])
+        y1 = int(it["top"])
+        x2 = x1 + int(it["width"])
+        y2 = y1 + int(it["height"])
+
+        cv2.rectangle(
+            img,
+            (x1, y1),
+            (x2, y2),
+            (0, 165, 255),  # orange
+            2
+        )
+
+    # --------------------------------------------------
+    # Draw axes (blue)
+    # --------------------------------------------------
+    axes = inference.get("axes", {})
+    for ax in axes.values():
+        x1, y1 = ax["start"]
+        x2, y2 = ax["end"]
+
+        cv2.line(
+            img,
+            (int(x1), int(y1)),
+            (int(x2), int(y2)),
+            (255, 0, 0),  # blue
+            3
+        )
+
+    # --------------------------------------------------
+    # Draw bars (green)
+    # --------------------------------------------------
+    for bar in inference.get("bars", []):
+        x1, x2 = bar["x_range"]
+        top_y = bar["top_y"]
+        height = bar["height_px"]
+
+        y_bottom = top_y + height
+
+        cv2.rectangle(
+            img,
+            (int(x1), int(top_y)),
+            (int(x2), int(y_bottom)),
+            (0, 255, 0),  # green
+            2
+        )
+
+    cv2.imwrite(str(output_path), img)
+
+
 # ============================================================
 # FUNCTION 12: FULL BAR-CHART PIPELINE (TEXT-AWARE → INFERENCE)
 # ============================================================
@@ -1399,6 +1474,21 @@ def run_bar_chart_full_pipeline(
         output_path=annotated_path
     )
 
+    # --------------------------------------------------
+    # STEP 6: Combined annotation
+    # --------------------------------------------------
+    with open(output_dir / "ocr_data.json", "r", encoding="utf-8") as f:
+        ocr_items = json.load(f)
+
+    combined_path = output_dir / "annotated_combined.png"
+
+    annotate_text_and_axes_and_bars(
+        image_path=image_path,
+        ocr_items=ocr_items,
+        inference=inference,
+        output_path=combined_path
+    )
+
     return {
         "image_path": str(image_path),
         "output_dir": str(output_dir),
@@ -1408,6 +1498,9 @@ def run_bar_chart_full_pipeline(
         "num_bars": len(inference.get("bars", [])),
         "num_axes": len(inference.get("axes", []))
     }
+
+
+
 
 
 import json
