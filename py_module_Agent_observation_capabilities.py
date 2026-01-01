@@ -203,7 +203,7 @@ def crop_at_location(png_path, x, y, m, n):
 
 
 # ============================================================
-# FUNCTION 4: DETECT CHART ELEMENTS (COARSE)
+# FUNCTION 4: DETECT CHART ELEMENTS (COARSE, NOT RELIABLE)
 # ============================================================
 
 def detect_chart_elements(png_path):
