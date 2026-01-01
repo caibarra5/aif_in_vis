@@ -18,3 +18,12 @@ models/
 venv/
 
 notes/
+
+# Pipeline output directories
+dir_demo_*/
+demo_*/
+
+# Generated images ONLY
+annotated_*.png
+*_roi.png
+
