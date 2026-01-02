@@ -1,56 +1,113 @@
 # filename: py_module_Agent_observation_capabilities.py
+
 """
 Module: py_module_Agent_observation_capabilities.py
 
-Functions:
+Purpose:
+    Low-level image observation and chart-understanding utilities intended
+    for agent perception pipelines. The module combines classical computer
+    vision, OCR, and vision–language model scoring to extract structural
+    evidence from chart-like images, with a focus on bar charts.
+
+Scope:
+    - Image metadata and cropping utilities
+    - Primitive detection (lines, rectangles) via OpenCV
+    - OCR-based text extraction and normalization
+    - CLIP-based plot-type evidence scoring
+    - JSON-based interoperability between pipeline stages
+    - End-to-end bar-chart inference (axes, bars, values)
+
+Public Functions:
     1) get_png_attributes(png_path)
+        Read basic image metadata (width, height, color mode).
+
     2) crop_random_png(png_path, m, n)
+        Randomly crop an image without saving to disk.
+
     3) crop_at_location(png_path, x, y, m, n)
+        Crop an image at a fixed pixel location.
+
     4) detect_chart_elements(png_path)
-    5) extract_objects(image_path, output_dir, color_tol=10, min_pixels=50, padding=4)
-    6) detect_chart_primitives(
-           image_path,
-           min_contour_area=200,
-           canny_low=50,
-           canny_high=150,
-           hough_threshold=80,
-           min_line_length=60,
-           max_line_gap=10,
-           min_bar_width=10,
-           min_bar_height=10,
-           min_bar_extent=0.60
-       )
+        Coarse, heuristic detection of lines, blobs, and text (exploratory).
+
+    5) extract_objects(image_path, output_dir, color_tol=10,
+                       min_pixels=50, padding=4)
+        Extract connected color regions as separate images.
+
+    6) detect_chart_primitives(image_path, ...)
+        Detect low-level geometric primitives (currently lines only)
+        using edge detection and Hough transforms.
+
     7) extract_chart_text_ocr(image_path, psm=6, min_confidence=0.0)
-    8) clip_plot_type_evidence(
-           image_path,
-           plot_type_prompts=None,
-           model_name="openai/clip-vit-base-patch32",
-           device=None
-       )
-    9) crop_image_by_primitives_json(
-           image_path,
-           primitives_json_path,
-           output_dir,
-           include_types=("rectangle", "line"),
-           padding=4,
-           line_min_thickness=6,
-           overwrite=True
-       )
+        Extract textual elements using Tesseract OCR.
+
+    8) clip_plot_type_evidence(image_path, plot_type_prompts=None,
+                               model_name="openai/clip-vit-base-patch32",
+                               device=None)
+        Score image similarity against plot-type text prompts using CLIP.
+
+    9) crop_image_by_primitives_json(image_path, primitives_json_path,
+                                     output_dir, ...)
+        Crop image regions based on detected primitives stored in JSON.
+
+    10) extract_primitives_and_text_to_json(image_path, output_json_path, ...)
+        Run primitive detection and OCR and emit a single combined JSON file.
+
+    11) detect_primitives_text_aware_global_coords(image_path, output_dir, ...)
+        Detect primitives while excluding text regions, returning global
+        image coordinates.
+
+    12) infer_axes_and_bars_from_primitives(primitives, image_width,
+                                            image_height, ...)
+        Infer chart axes and bar geometry from detected primitives.
+
+    13) annotate_axes_and_bars(image_path, inference, output_path)
+        Draw inferred axes and bars onto an image.
+
+    14) save_inference_json(inference, output_path)
+        Serialize inferred chart structure to JSON.
+
+    15) annotate_text_and_axes_and_bars(image_path, ocr_items,
+                                        inference, output_path)
+        Visualize OCR boxes, axes, and bars together.
+
+    16) run_bar_chart_full_pipeline(image_path, output_dir, ...)
+        End-to-end bar-chart processing pipeline.
+
+    17) map_bar_heights_to_xlabels_from_jsons(ocr_json_path,
+                                              inferred_json_path)
+        Map bar heights to x-axis labels using OCR and inferred geometry.
+
+Notes:
+    - No learning or model training occurs in this module.
+    - Most functions are deterministic and stateless.
+    - Higher-level semantic reasoning is expected to be handled downstream.
 """
 
-from PIL import Image
-import numpy as np
-from pathlib import Path
-import json
-import os
-import shutil
 
+# ===============================
+# Standard library
+# ===============================
+import os
+import json
+import math
+import shutil
+import inspect
+from pathlib import Path
+
+# ===============================
+# Third-party libraries
+# ===============================
+import numpy as np
 import cv2
 import pytesseract
+
+from PIL import Image
 from scipy.ndimage import label, find_objects
 
-import inspect
-
+# ============================================================
+# INTERNAL HELPER: FILTER KWARGS FOR FUNCTION SIGNATURE
+# ============================================================
 def _filter_kwargs_for(func, kwargs):
     valid = set(inspect.signature(func).parameters.keys())
     return {k: v for k, v in kwargs.items() if k in valid}
@@ -383,8 +440,6 @@ def detect_chart_primitives(
         primitives (list of dict)
         annotated_img (np.ndarray)
     """
-    import cv2
-    import numpy as np
 
     img = cv2.imread(image_path)
     if img is None:
@@ -542,16 +597,21 @@ def clip_plot_type_evidence(
                 "score": float
             }
     """
-    from PIL import Image
     import torch
     from transformers import CLIPProcessor, CLIPModel
 
     if plot_type_prompts is None:
         plot_type_prompts = [
-            "a histogram",
             "a bar chart",
-            "a line plot",
-            "a scatter plot"
+            "a line chart",
+            "a scatter plot",
+            "a histogram",
+            "a pie chart",
+            "a heatmap",
+            "a box plot",
+            "a violin plot",
+            "an area chart",
+            "a radar chart"
         ]
 
     if device is None:
@@ -593,7 +653,7 @@ def clip_plot_type_evidence(
     return results
 
 # ============================================================
-# FUNCTION 9 crop_image_by_primitives_json
+# FUNCTION 9: CROP IMAGE BY PRIMITIVES (JSON INPUT)
 # ============================================================
 
 def crop_image_by_primitives_json(
@@ -637,10 +697,6 @@ def crop_image_by_primitives_json(
         manifest (list[dict]):
             One entry per saved crop (filename, primitive, crop_box, etc.).
     """
-    import json
-    import os
-    import shutil
-    import cv2
 
     image_path = str(image_path)
     primitives_json_path = str(primitives_json_path)
@@ -907,7 +963,7 @@ def extract_primitives_and_text_to_json(
     return result
 
 # ============================================================
-# FUNCTION 11 and helper functions: detect_primitives_text_aware_global_coords
+# INTERNAL HELPER: OFFSET PRIMITIVES TO GLOBAL COORDINATES
 # ============================================================
 
 def _offset_primitives(primitives, dx, dy):
@@ -937,6 +993,10 @@ def _offset_primitives(primitives, dx, dy):
 
     return out
 
+# ============================================================
+# FUNCTION 11: TEXT-AWARE PRIMITIVE DETECTION (GLOBAL COORDS)
+# ============================================================
+
 def detect_primitives_text_aware_global_coords(
     image_path,
     output_dir,
@@ -954,11 +1014,6 @@ def detect_primitives_text_aware_global_coords(
         - annotated_text.png
         - ocr_data.json
     """
-    import cv2
-    import json
-    import shutil
-    import numpy as np
-    from pathlib import Path
 
     if primitives_kwargs is None:
         primitives_kwargs = {}
@@ -997,9 +1052,9 @@ def detect_primitives_text_aware_global_coords(
         boxes.append((x1, y1, x2, y2))
 
 
-# --------------------------------------------------
-# GROUP OCR BOXES INTO TEXT BANDS
-# --------------------------------------------------
+    # --------------------------------------------------
+    # GROUP OCR BOXES INTO TEXT BANDS
+    # --------------------------------------------------
     def group_by_pair(boxes, key_fn, tol):
         groups = []
         keys = []
@@ -1207,6 +1262,9 @@ def detect_primitives_text_aware_global_coords(
         "num_primitives": len(primitives)
     }
 
+# ============================================================
+# FUNCTION 12: INFER AXES AND BARS FROM PRIMITIVES
+# ============================================================
 
 def infer_axes_and_bars_from_primitives(
     primitives,
@@ -1249,16 +1307,15 @@ def infer_axes_and_bars_from_primitives(
         "bars": bars
     }
 
-
-
-import cv2
+# ============================================================
+# FUNCTION 13: ANNOTATE AXES AND BARS ON IMAGE
+# ============================================================
 
 def annotate_axes_and_bars(
     image_path,
     inference,
     output_path
 ):
-    import cv2
 
     img = cv2.imread(image_path)
     if img is None:
@@ -1302,13 +1359,17 @@ def annotate_axes_and_bars(
 
     cv2.imwrite(str(output_path), img)
 
-
-import json
+# ============================================================
+# FUNCTION 14: SAVE INFERENCE JSON
+# ============================================================
 
 def save_inference_json(inference, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(inference, f, indent=2)
 
+# ============================================================
+# FUNCTION 15: ANNOTATE TEXT + AXES + BARS
+# ============================================================
 
 def annotate_text_and_axes_and_bars(
     image_path,
@@ -1325,7 +1386,6 @@ def annotate_text_and_axes_and_bars(
         inference (dict): from inferred_axes_and_bars.json
         output_path (str or Path)
     """
-    import cv2
 
     img = cv2.imread(str(image_path))
     if img is None:
@@ -1386,7 +1446,7 @@ def annotate_text_and_axes_and_bars(
 
 
 # ============================================================
-# FUNCTION 12: FULL BAR-CHART PIPELINE (TEXT-AWARE → INFERENCE)
+# FUNCTION 16: FULL BAR-CHART PIPELINE (END-TO-END)
 # ============================================================
 
 def run_bar_chart_full_pipeline(
@@ -1416,9 +1476,6 @@ def run_bar_chart_full_pipeline(
         dict:
             Summary with paths and inference results.
     """
-    import json
-    import cv2
-    from pathlib import Path
 
     if primitives_kwargs is None:
         primitives_kwargs = {}
@@ -1500,13 +1557,9 @@ def run_bar_chart_full_pipeline(
     }
 
 
-
-
-
-import json
-import math
-
-import json
+# ============================================================
+# FUNCTION 17: MAP BAR HEIGHTS TO X-LABELS
+# ============================================================
 
 def map_bar_heights_to_xlabels_from_jsons(
     ocr_json_path,
@@ -1589,3 +1642,452 @@ def map_bar_heights_to_xlabels_from_jsons(
         result[label] = int(round(bar_value, 2))
 
     return result
+
+# ============================================================
+# FUNCTION 18: INFER TEXT STRUCTURE FROM RAW OCR
+# ============================================================
+
+def infer_text_structure_from_ocr(
+    ocr_json_path,
+    output_json_path,
+    group_tol_px=6
+):
+    """
+    Infer chart text structure from raw OCR detections.
+
+    Identifies:
+      - title
+      - x-axis label
+      - y-axis label
+      - x-axis tick labels
+      - y-axis tick labels
+      - spacing statistics
+
+    Args:
+        ocr_json_path (str or Path):
+            Path to raw OCR JSON (list of items).
+        output_json_path (str or Path):
+            Path to save structured text JSON.
+        group_tol_px (int):
+            Pixel tolerance for grouping aligned text.
+
+    Returns:
+        dict: inferred structure
+    """
+    import statistics
+
+    ocr_json_path = Path(ocr_json_path)
+    output_json_path = Path(output_json_path)
+
+    with open(ocr_json_path, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    # ---------------------------------------------
+    # Helpers
+    # ---------------------------------------------
+    def bbox_xyxy(it):
+        x1 = it["left"]
+        y1 = it["top"]
+        x2 = x1 + it["width"]
+        y2 = y1 + it["height"]
+        return x1, y1, x2, y2
+
+    def center_x(it):
+        x1, _, x2, _ = bbox_xyxy(it)
+        return (x1 + x2) / 2
+
+    def center_y(it):
+        _, y1, _, y2 = bbox_xyxy(it)
+        return (y1 + y2) / 2
+
+    # ---------------------------------------------
+    # Vertical extent reference
+    # ---------------------------------------------
+    all_y = [center_y(it) for it in items]
+    min_y, max_y = min(all_y), max(all_y)
+    height = max_y - min_y
+
+    # ---------------------------------------------
+    # Title: highest text band (topmost)
+    # ---------------------------------------------
+    title_items = [
+        it for it in items
+        if center_y(it) <= min_y + 0.15 * height
+    ]
+
+    # ---------------------------------------------
+    # X-axis label: bottom-most centered text
+    # ---------------------------------------------
+    x_axis_label_items = [
+        it for it in items
+        if center_y(it) >= min_y + 0.9 * height
+    ]
+
+    # ---------------------------------------------
+    # Y-axis label: vertical orientation OR leftmost tall text
+    # ---------------------------------------------
+    y_axis_label_items = [
+        it for it in items
+        if it.get("orientation") == "vertical"
+    ]
+
+    # ---------------------------------------------
+    # Group by aligned X (for y-ticks)
+    # ---------------------------------------------
+    def group_by_x(items):
+        groups = []
+        for it in items:
+            cx = center_x(it)
+            placed = False
+            for g in groups:
+                if abs(center_x(g[0]) - cx) <= group_tol_px:
+                    g.append(it)
+                    placed = True
+                    break
+            if not placed:
+                groups.append([it])
+        return groups
+
+    # ---------------------------------------------
+    # Group by aligned Y (for x-ticks)
+    # ---------------------------------------------
+    def group_by_y(items):
+        groups = []
+        for it in items:
+            cy = center_y(it)
+            placed = False
+            for g in groups:
+                if abs(center_y(g[0]) - cy) <= group_tol_px:
+                    g.append(it)
+                    placed = True
+                    break
+            if not placed:
+                groups.append([it])
+        return groups
+
+    # ---------------------------------------------
+    # Y-axis tick labels (numbers on left side)
+    # ---------------------------------------------
+    left_items = [
+        it for it in items
+        if center_x(it) <= min(center_x(i) for i in items) + 0.25 * (
+            max(center_x(i) for i in items) - min(center_x(i) for i in items)
+        )
+        and it not in y_axis_label_items
+    ]
+
+    y_tick_groups = group_by_x(left_items)
+    y_tick_group = max(y_tick_groups, key=len) if y_tick_groups else []
+
+    y_tick_centers = sorted(center_y(it) for it in y_tick_group)
+    y_tick_spacings = [
+        y_tick_centers[i + 1] - y_tick_centers[i]
+        for i in range(len(y_tick_centers) - 1)
+    ]
+
+    # ---------------------------------------------
+    # X-axis tick labels (spread horizontally near bottom)
+    # ---------------------------------------------
+    bottom_items = [
+        it for it in items
+        if center_y(it) >= min_y + 0.75 * height
+        and it not in x_axis_label_items
+    ]
+
+    x_tick_groups = group_by_y(bottom_items)
+    x_tick_group = max(x_tick_groups, key=len) if x_tick_groups else []
+
+    x_tick_centers = sorted(center_x(it) for it in x_tick_group)
+    x_tick_spacings = [
+        x_tick_centers[i + 1] - x_tick_centers[i]
+        for i in range(len(x_tick_centers) - 1)
+    ]
+
+    # ---------------------------------------------
+    # Assemble output
+    # ---------------------------------------------
+    result = {
+        "title": {
+            "items": title_items,
+            "text": " ".join(it["text"] for it in title_items)
+        },
+        "x_axis_label": {
+            "items": x_axis_label_items,
+            "text": " ".join(it["text"] for it in x_axis_label_items)
+        },
+        "y_axis_label": {
+            "items": y_axis_label_items,
+            "text": " ".join(it["text"] for it in y_axis_label_items)
+        },
+        "y_axis_ticks": {
+            "items": y_tick_group,
+            "count": len(y_tick_group),
+            "spacing_px": {
+                "mean": statistics.mean(y_tick_spacings) if y_tick_spacings else None,
+                "std": statistics.pstdev(y_tick_spacings) if len(y_tick_spacings) > 1 else None
+            }
+        },
+        "x_axis_ticks": {
+            "items": x_tick_group,
+            "count": len(x_tick_group),
+            "spacing_px": {
+                "mean": statistics.mean(x_tick_spacings) if x_tick_spacings else None,
+                "std": statistics.pstdev(x_tick_spacings) if len(x_tick_spacings) > 1 else None
+            }
+        }
+    }
+
+    output_json_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+
+    return result
+
+# ============================================================
+# FUNCTION 19: CHART STRUCTURE SUMMARY 
+# ============================================================
+def chart_structure_quality_summary(
+    ocr_json_path,
+    inference_json_path,
+    output_json_path,
+    spacing_tol_ratio=0.25,
+    size_outlier_ratio=0.5,
+    axis_angle_tol_deg=10.0
+):
+    import json
+    import numpy as np
+    from pathlib import Path
+
+    ocr_json_path = Path(ocr_json_path)
+    inference_json_path = Path(inference_json_path)
+    output_json_path = Path(output_json_path)
+
+    with open(ocr_json_path, "r", encoding="utf-8") as f:
+        ocr_items = json.load(f)
+
+    with open(inference_json_path, "r", encoding="utf-8") as f:
+        inference = json.load(f)
+
+    # --------------------------------------------------
+    # Bars
+    # --------------------------------------------------
+    bars = inference.get("bars", [])
+    num_bars = len(bars)
+    has_bars = num_bars > 0
+
+    # --------------------------------------------------
+    # Axes
+    # --------------------------------------------------
+    axes = inference.get("axes", {})
+    has_x_axis = "x_axis" in axes
+    has_y_axis = "y_axis" in axes
+
+    axes_perpendicular = False
+    if has_x_axis and has_y_axis:
+        ax = axes["x_axis"]["angle_deg"]
+        ay = axes["y_axis"]["angle_deg"]
+        axes_perpendicular = abs(abs(ax - ay) - 90) <= axis_angle_tol_deg
+
+    # --------------------------------------------------
+    # Identify x-axis tick labels (already correct)
+    # --------------------------------------------------
+    img_height = max(it["top"] + it["height"] for it in ocr_items)
+
+    x_tick_candidates = []
+    for it in ocr_items:
+        txt = it["text"].strip()
+        if txt.replace(".", "").isdigit():
+            continue
+        if it.get("orientation") == "vertical":
+            continue
+        y_mid = it["top"] + it["height"] / 2
+        if y_mid < 0.5 * img_height:
+            continue
+        x_tick_candidates.append(it)
+
+    y_centers = np.array([it["top"] + it["height"] / 2 for it in x_tick_candidates])
+
+    x_tick_items = []
+    if len(y_centers) > 0:
+        median_y = np.median(y_centers)
+        x_tick_items = [
+            it for it in x_tick_candidates
+            if abs((it["top"] + it["height"] / 2) - median_y) < it["height"]
+        ]
+
+    num_x_ticks = len(x_tick_items)
+
+    # --------------------------------------------------
+    # FIXED: Identify y-axis tick labels using inferred y-axis
+    # --------------------------------------------------
+    y_tick_items = []
+
+    if has_y_axis:
+        y_axis_x = axes["y_axis"]["start"][0]
+
+        # tolerance based on image scale
+        x_tol = 0.05 * max(it["left"] + it["width"] for it in ocr_items)
+
+        for it in ocr_items:
+            # must be numeric
+            try:
+                float(it["text"])
+            except ValueError:
+                continue
+
+            # exclude vertical axis label (e.g. "USD")
+            if it.get("orientation") == "vertical":
+                continue
+
+            # right edge close to y-axis line
+            right_edge = it["left"] + it["width"]
+            if abs(right_edge - y_axis_x) <= x_tol:
+                y_tick_items.append(it)
+
+    num_y_ticks = len(y_tick_items)
+
+
+    # --------------------------------------------------
+    # Tick spacing consistency (y-axis)
+    # --------------------------------------------------
+    y_tick_centers = sorted(
+        it["top"] + it["height"] / 2 for it in y_tick_items
+    )
+
+    if len(y_tick_centers) >= 2:
+        spacings = np.diff(y_tick_centers)
+        spacing_mean = float(np.mean(spacings))
+        spacing_std = float(np.std(spacings))
+        y_spacing_consistent = (spacing_std / spacing_mean) <= spacing_tol_ratio
+    else:
+        spacing_mean = None
+        spacing_std = None
+        y_spacing_consistent = False
+
+    def height_consistency(items, tol_ratio):
+        """
+        Check whether OCR boxes have consistent text height.
+        """
+        if len(items) < 2:
+            return False, None
+
+        heights = np.array([it["height"] for it in items])
+        med = np.median(heights)
+        rel_dev = np.abs(heights - med) / max(med, 1e-6)
+        outliers = rel_dev > tol_ratio
+
+        return not np.any(outliers), int(np.sum(outliers))
+
+    x_tick_height_consistent, x_tick_height_outliers = height_consistency(
+        x_tick_items, size_outlier_ratio
+    )
+
+    y_tick_height_consistent, y_tick_height_outliers = height_consistency(
+        y_tick_items, size_outlier_ratio
+    )
+
+
+    # --------------------------------------------------
+    # Title / axis labels presence
+    # --------------------------------------------------
+    has_title = any(it["top"] < 0.25 * img_height for it in ocr_items)
+    has_x_axis_label = any(it["top"] > 0.9 * img_height for it in ocr_items)
+    has_y_axis_label = any(it.get("orientation") == "vertical" for it in ocr_items)
+
+    # --------------------------------------------------
+    # Bar ↔ x-tick count match
+    # --------------------------------------------------
+    bars_match_x_ticks = has_bars and num_x_ticks > 0 and abs(num_bars - num_x_ticks) <= 1
+
+    # --------------------------------------------------
+    # Track mapped OCR items
+    # --------------------------------------------------
+    mapped_items = set()
+
+    def item_id(it):
+        # stable identity for set membership
+        return (it["left"], it["top"], it["width"], it["height"], it["text"])
+
+    # x ticks
+    for it in x_tick_items:
+        mapped_items.add(item_id(it))
+
+    # y ticks
+    for it in y_tick_items:
+        mapped_items.add(item_id(it))
+
+    # title
+    for it in ocr_items:
+        if it["top"] < 0.25 * img_height:
+            mapped_items.add(item_id(it))
+
+    # x-axis label
+    for it in ocr_items:
+        if it["top"] > 0.9 * img_height:
+            mapped_items.add(item_id(it))
+
+    # y-axis label
+    for it in ocr_items:
+        if it.get("orientation") == "vertical":
+            mapped_items.add(item_id(it))
+
+    unmapped_items = [
+        it for it in ocr_items
+        if item_id(it) not in mapped_items
+    ]
+
+    num_unmapped = len(unmapped_items)
+    has_unmapped = num_unmapped > 0
+
+
+    # --------------------------------------------------
+    # Final summary
+    # --------------------------------------------------
+    summary = {
+        "bars": {
+            "num_bars": num_bars,
+            "has_bars": has_bars
+        },
+        "x_ticks": {
+            "num_x_ticks": num_x_ticks
+        },
+        "y_ticks": {
+            "num_y_ticks": num_y_ticks,
+            "spacing_mean_px": spacing_mean,
+            "spacing_std_px": spacing_std,
+            "spacing_consistent": y_spacing_consistent
+        },
+        "text_height_consistency": {
+            "x_tick_height_consistent": x_tick_height_consistent,
+            "x_tick_height_outliers": x_tick_height_outliers,
+            "y_tick_height_consistent": y_tick_height_consistent,
+            "y_tick_height_outliers": y_tick_height_outliers
+        },
+        "labels": {
+            "has_title": has_title,
+            "has_x_axis_label": has_x_axis_label,
+            "has_y_axis_label": has_y_axis_label
+        },
+        "axes": {
+            "has_x_axis": has_x_axis,
+            "has_y_axis": has_y_axis,
+            "axes_perpendicular": axes_perpendicular
+        },
+        "cross_consistency": {
+            "bars_match_x_ticks": bars_match_x_ticks
+        },
+        "text_mapping": {
+            "num_ocr_items": len(ocr_items),
+            "num_mapped": len(mapped_items),
+            "num_unmapped": num_unmapped,
+            "has_unmapped": has_unmapped,
+            "unmapped_examples": [
+                it["text"] for it in unmapped_items[:3]
+            ]
+        }
+    }
+
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    return summary

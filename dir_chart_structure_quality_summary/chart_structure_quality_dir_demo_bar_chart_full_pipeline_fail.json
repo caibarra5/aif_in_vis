@@ -1,0 +1,41 @@
+{
+  "bars": {
+    "num_bars": 0,
+    "has_bars": false
+  },
+  "x_ticks": {
+    "num_x_ticks": 5
+  },
+  "y_ticks": {
+    "num_y_ticks": 4,
+    "spacing_mean_px": 93.0,
+    "spacing_std_px": 0.0,
+    "spacing_consistent": true
+  },
+  "text_height_consistency": {
+    "x_tick_height_consistent": true,
+    "x_tick_height_outliers": 0,
+    "y_tick_height_consistent": true,
+    "y_tick_height_outliers": 0
+  },
+  "labels": {
+    "has_title": true,
+    "has_x_axis_label": true,
+    "has_y_axis_label": true
+  },
+  "axes": {
+    "has_x_axis": true,
+    "has_y_axis": true,
+    "axes_perpendicular": true
+  },
+  "cross_consistency": {
+    "bars_match_x_ticks": false
+  },
+  "text_mapping": {
+    "num_ocr_items": 14,
+    "num_mapped": 14,
+    "num_unmapped": 0,
+    "has_unmapped": false,
+    "unmapped_examples": []
+  }
+}
