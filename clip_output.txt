@@ -1,0 +1,13 @@
+a bar chart      0.263
+a line chart     0.251
+a scatter plot   0.230
+a histogram      0.222
+a pie chart      0.207
+a heatmap        0.217
+a box plot       0.225
+a violin plot    0.161
+an area chart    0.234
+a radar chart    0.187
+
+Best match:
+a bar chart  0.263
