@@ -1850,7 +1850,7 @@ def chart_structure_quality_summary(
     ocr_json_path,
     inference_json_path,
     output_json_path,
-    spacing_tol_ratio=0.25,
+    spacing_tol_ratio=0.1,
     size_outlier_ratio=0.5,
     axis_angle_tol_deg=10.0
 ):
