@@ -1,7 +1,7 @@
 Run in command line with python. Most functions used are in the py_module*.py 
 run
 
-python files.demo_run_bar_chart_full_pipeline.py
+python demo_run_bar_chart_full_pipeline.py
 
 python demo_structure_quality.py
 
