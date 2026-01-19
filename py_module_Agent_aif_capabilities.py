@@ -134,3 +134,107 @@ def summarize_bar_chart_to_json(
         json.dump(summary, f, indent=2)
 
     return summary
+
+
+import numpy as np
+import re
+
+import json
+import re
+import numpy as np
+
+
+def image_interpretation_output_to_agent(
+    axes_and_bars_json_path: str,
+    ocr_json_path: str
+):
+    """
+    Parameters
+    ----------
+    axes_and_bars_json_path : str
+        Path to inferred_axes_and_bars.json
+    ocr_json_path : str
+        Path to ocr_data.json
+
+    Returns
+    -------
+    bar_heights : list[float]
+        Bar heights in data units (e.g. USD)
+    tick_values : list[float]
+        Y-axis tick values
+    number_of_ticks : int
+    number_of_bars : int
+    """
+
+    # -----------------------------
+    # Load JSON files
+    # -----------------------------
+    with open(axes_and_bars_json_path, "r") as f:
+        axes_and_bars = json.load(f)
+
+    with open(ocr_json_path, "r") as f:
+        ocr_data = json.load(f)
+
+    bars = axes_and_bars["bars"]
+
+    # -----------------------------
+    # Extract numeric Y-axis ticks
+    # -----------------------------
+    tick_entries = []
+    for item in ocr_data:
+        text = item["text"].strip()
+        if re.fullmatch(r"\d+", text):
+            value = float(text)
+            y_center = item["top"] + item["height"] / 2
+            tick_entries.append((y_center, value))
+
+    if len(tick_entries) < 2:
+        raise ValueError("Not enough Y-axis ticks to infer scale.")
+
+    # Sort top → bottom in image space
+    tick_entries.sort(key=lambda x: x[0])
+
+    tick_pixels = np.array([t[0] for t in tick_entries])
+    tick_values = np.array([t[1] for t in tick_entries])
+
+    number_of_ticks = len(tick_values)
+
+    # -----------------------------
+    # Fit pixel → value mapping
+    # -----------------------------
+    a, b = np.polyfit(tick_pixels, tick_values, 1)
+
+    def pixel_to_value(y_pixel):
+        return a * y_pixel + b
+
+    # -----------------------------
+    # Baseline (y = 0)
+    # -----------------------------
+    baseline_pixel = tick_pixels.max()
+    baseline_value = pixel_to_value(baseline_pixel)
+
+    # -----------------------------
+    # Compute bar heights (FIXED)
+    # -----------------------------
+    bar_heights = []
+    for bar in bars:
+        top_y = bar["top_y"]
+
+        value_top = pixel_to_value(top_y)
+        bar_value = value_top - baseline_value
+
+        bar_heights.append(round(bar_value, 2))
+
+    number_of_bars = len(bar_heights)
+
+    return bar_heights, tick_values.tolist(), number_of_ticks, number_of_bars
+
+
+
+def environment(bar_heights, tick_values):
+
+    return env
+
+def agent(number_of_ticks, number_of_bars):
+
+    return agent
