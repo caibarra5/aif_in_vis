@@ -231,10 +231,198 @@ def image_interpretation_output_to_agent(
 
 
 
-def environment(bar_heights, tick_values):
+import numpy as np
+from pymdp.envs import Env
 
-    return env
 
-def agent(number_of_ticks, number_of_bars):
+def environment(bar_heights, tick_values) -> Env:
+    """
+    Construct a pymdp-compatible environment for bar-chart interpretation.
+    """
 
-    return agent
+    class BarChartEnv(Env):
+
+        def __init__(self, bar_heights, tick_values):
+            super().__init__()
+
+            self.bar_heights = bar_heights
+            self.tick_values = tick_values
+
+            self.n_bars = len(bar_heights)
+            self.n_ticks = len(tick_values)
+
+            # Ground truth
+            self.true_avg = np.mean(bar_heights)
+
+            # ----- Hidden states -----
+            # focus_state: which item is attended
+            # ref_tick_state: reference tick index
+            self.state = {
+                "focus": None,
+                "ref_tick": 0
+            }
+
+        # -------------------------------------------------
+        # Required pymdp API
+        # -------------------------------------------------
+        def reset(self, initial_state=None):
+            if initial_state is None:
+                self.state["focus"] = None
+                self.state["ref_tick"] = 0
+            else:
+                self.state.update(initial_state)
+
+            return self._observe()
+
+        def step(self, action):
+            """
+            action is an integer encoding:
+              0 .. n_bars-1           → attend to bar i
+              n_bars .. n_bars+n_ticks-1 → attend to tick j
+              n_bars+n_ticks          → report
+            """
+
+            bar_obs = 0
+            tick_obs = 0
+            fb_obs = 0
+
+            # Attend to bar
+            if action < self.n_bars:
+                bar_idx = action
+                h = self.bar_heights[bar_idx]
+                ref_val = self.tick_values[self.state["ref_tick"]]
+
+                if h < ref_val:
+                    bar_obs = 1
+                elif h == ref_val:
+                    bar_obs = 2
+                else:
+                    bar_obs = 3
+
+            # Attend to tick
+            elif action < self.n_bars + self.n_ticks:
+                tick_idx = action - self.n_bars
+                self.state["ref_tick"] = tick_idx
+                tick_obs = self.tick_values[tick_idx]
+
+            # Report
+            else:
+                est = self.tick_values[self.state["ref_tick"]]
+                fb_obs = int(abs(est - self.true_avg) < 1e-3)
+
+            return [bar_obs, tick_obs, fb_obs]
+
+        # -------------------------------------------------
+        # Internal
+        # -------------------------------------------------
+        def _observe(self):
+            return [0, 0, 0]
+
+    return BarChartEnv(bar_heights, tick_values)
+
+
+
+import numpy as np
+from pymdp.agent import Agent
+from pymdp.utils import obj_array
+
+
+def agent(number_of_ticks, number_of_bars) -> Agent:
+    """
+    Construct a pymdp Agent for bar-chart interpretation.
+    """
+
+    # -------------------------------------------------
+    # Hidden states
+    # -------------------------------------------------
+    # One factor: reference tick index
+    num_states = [number_of_ticks]
+
+    # -------------------------------------------------
+    # Observation modalities
+    # -------------------------------------------------
+    num_obs = [
+        4,                      # bar_obs: null, below, equal, above
+        number_of_ticks + 1,    # tick_obs: null + tick values
+        3                       # feedback_obs: null, incorrect, correct
+    ]
+
+    # -------------------------------------------------
+    # Actions
+    # -------------------------------------------------
+    num_actions = [number_of_bars + number_of_ticks + 1]
+
+    # -------------------------------------------------
+    # A matrices (observation model)
+    # -------------------------------------------------
+    A = obj_array(len(num_obs))
+
+    # bar_obs: independent of hidden state (uninformative for now)
+    A[0] = np.ones((num_obs[0], num_states[0]))
+    A[0] /= A[0].sum(axis=0, keepdims=True)
+
+    # tick_obs: perfectly reveals reference tick
+    A[1] = np.zeros((num_obs[1], num_states[0]))
+    for j in range(number_of_ticks):
+        A[1][j + 1, j] = 1.0   # +1 because 0 is null
+    A[1][0, :] = 1e-16        # null observation (tiny mass)
+
+    # feedback_obs: initially uninformative
+    A[2] = np.ones((num_obs[2], num_states[0]))
+    A[2] /= A[2].sum(axis=0, keepdims=True)
+
+    # -------------------------------------------------
+    # B matrices (transition model)
+    # -------------------------------------------------
+    B = obj_array(1)
+
+    # Reference tick is controllable (agent can change it)
+    B[0] = np.zeros((num_states[0], num_states[0], num_actions[0]))
+
+    for a in range(num_actions[0]):
+        if number_of_bars <= a < number_of_bars + number_of_ticks:
+            # attending to tick j sets ref_tick = j
+            j = a - number_of_bars
+            B[0][:, :, a] = 0.0
+            B[0][j, :, a] = 1.0
+        else:
+            # otherwise, ref_tick stays the same
+            B[0][:, :, a] = np.eye(num_states[0])
+
+    # -------------------------------------------------
+    # C matrix (preferences)
+    # -------------------------------------------------
+    C = obj_array(len(num_obs))
+
+    # No preference over bar or tick observations
+    C[0] = np.zeros(num_obs[0])
+    C[1] = np.zeros(num_obs[1])
+
+    # Prefer "correct" feedback
+    C[2] = np.array([0.0, -4.0, 4.0])
+
+    # -------------------------------------------------
+    # D matrix (prior over hidden states)
+    # -------------------------------------------------
+    D = obj_array(1)
+    D[0] = np.ones(num_states[0]) / num_states[0]
+
+    # -------------------------------------------------
+    # Construct agent
+    # -------------------------------------------------
+    my_agent = Agent(
+        A=A,
+        B=B,
+        C=C,
+        D=D,
+        num_controls=num_actions,
+        policy_len=1,
+        inference_horizon=1,
+        use_states_info_gain=True,
+        use_utility=True,
+        gamma=16.0,
+        alpha=16.0,
+        action_selection="deterministic"
+    )
+
+    return my_agent
