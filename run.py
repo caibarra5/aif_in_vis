@@ -201,7 +201,7 @@ def main():
     # -------------------------------------------------
     # 1) Perception pipeline (CV + OCR)
     # -------------------------------------------------
-    image_path = "input_python_scripts/two_bar_chart.png"
+    image_path = "2_bar_chart_output/two_bar_chart.png"
     output_dir = Path("output_python_scripts/dir_two_bar_chart_full_pipeline")
     output_dir.mkdir(parents=True, exist_ok=True)
 
