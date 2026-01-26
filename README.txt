@@ -1,3 +1,10 @@
+First run the test bar graph:
+
+
+
+
+
+
 Run in command line with python. Most functions used are in the py_module*.py 
 run
 
