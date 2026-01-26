@@ -1,9 +1,10 @@
+#filename: test_image_interpretation_pipeline.py
 from pathlib import Path
-from py_module_Agent_aif_capabilities import image_interpretation_output_to_agent
+from module_aif_bar_reader.py_module_Agent_aif_capabilities import image_interpretation_output_to_agent
 
 
 def main():
-    base_dir = Path("dir_demo_bar_chart_full_pipeline")
+    base_dir = Path("output_python_scripts/dir_demo_bar_chart_full_pipeline")
 
     axes_and_bars_path = base_dir / "inferred_axes_and_bars.json"
     ocr_path = base_dir / "ocr_data.json"
@@ -24,3 +25,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

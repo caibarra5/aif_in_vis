@@ -1,28 +1,18 @@
-# Python
-__pycache__/
-*.pyc
+# Ignore everything by default
+*
 
-# Generated outputs
-demo_f11_text_aware_global/
-test_Agent_observation_capabilities_output/
+# --- allow Git to traverse dirs ---
+!*/
 
-# Scratch
-recycle_bin/
+# --- keep root-level python files ---
+!/*.py
 
-# Models / weights (never commit)
-models/
+# --- keep python files in these two directories ---
+!module_aif_bar_reader/**/*.py
+!test_scripts/**/*.py
 
-# Envs
-.env
-.venv/
-venv/
-
-
-# Pipeline output directories
-dir_demo_*/
-demo_*/
-
-# Generated images ONLY
-annotated_*.png
-*_roi.png
+# --- optional: keep small repo metadata/docs ---
+!.gitignore
+!README.txt
+!LICENSE
 

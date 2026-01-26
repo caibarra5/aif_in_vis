@@ -183,7 +183,7 @@ def image_interpretation_output_to_agent(
     tick_entries = []
     for item in ocr_data:
         text = item["text"].strip()
-        if re.fullmatch(r"\d+", text):
+        if re.fullmatch(r"\d+(\.\d+)?", text):
             value = float(text)
             y_center = item["top"] + item["height"] / 2
             tick_entries.append((y_center, value))

@@ -1,4 +1,4 @@
-from py_module_Agent_observation_capabilities import (
+from module_aif_bar_reader.py_module_Agent_observation_capabilities import (
     run_bar_chart_full_pipeline
 )
 
