@@ -1,4 +1,9 @@
-First run the test bar graph:
+Latest: 1/26/2026
+First run the test bar graph generator:
+python two_bar_png_file_generator.py
+
+Then run the env generator, agent and inference loop:
+python run.py
 
 
 
