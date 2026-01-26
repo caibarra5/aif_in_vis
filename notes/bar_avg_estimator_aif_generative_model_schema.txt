@@ -1,0 +1,69 @@
+Context:
+We want an agent (that has human capabilities) to determine the avg of two bars in a bar graph. 
+We approximate human precision by a coarse bin within two tick values. 
+We split data values into a tick interval and pixel height for the true states (extreme ground truth). 
+We know this from an actual png file of a bar chart that we can already extract the necessary data using tesseract and OpenCV.
+Observations of bar heights are low resolution while the hidden state bar heights are higher resolution (but still not 
+pixel-level because we don't want our number of hidden states to be too big. Might helpe with computation time, but will
+incrase after validating generative model.)
+Our goal is for the agent to want to seek out more info before reporting is avg. We want intelligence to be emergent somehow.
+A smart person would first estimate the bar heights (coarse view, human capability) and then report an avg.
+---------------------------------------------------------------------------------------------------------------
+hidden state factors(3):
+
+fine_bin_bar1_height:
+# of states: n_ticks * 15
+meaning: the true height of bar 1 (pixel level) lies in one of n_ticks * 15 fine bins.
+It's complement is coarse_bin_bar1_height
+
+fine_bin_bar2_height:
+# of states: n_ticks * 15
+meaning: the true height of bar 2 (pixel level) lies in one of n_ticks * 15 fine bins.
+It's complement is coarse_bin_bar2_height
+
+enough_info_to_report_avg:
+# of states: 4
+states: (no_bar_heights_estimated, only_bar1_height_estimated, 
+only_bar2_height_estimated, both_bar_heights_estimated)
+these map to  (not_enough_info, partial_info, partial_info, a_lot_of_info)
+
+attention_state:
+# of states: 3
+states: next_attn, prev_attn, action
+
+
+---------------------------------------------------------------------------------------------------------------
+observations modalities(3):
+
+coarse_bin_bar1_height:
+# of states: n_ticks * 5
+meaning: the true height of bar 1 (hidden-state level) lies in one of n_ticks * 5 coarse bins.
+This observation should collapse fine_bin_bar1_height into a truncated, distretized Gaussian.
+
+coarse_bin_bar2_height:
+# of states: n_ticks * 5
+meaning: the true height of bar 1 (hidden-state level) lies in one of n_ticks * 5 coarse bins.
+This observation should collapse fine_bin_bar1_height into a truncated, distretized Gaussian.
+
+avg_feedback:
+description: feedback from reporting avg
+# of states: 4
+states:
+not_close_at_all: not even in the same tick interval
+close: in the same tick interval as the fine bin the pixel-level avg lives in.
+very_close: as close to the fine bin the pixel-level avg lives in as the lenght of a coarse bin or closer.
+
+---------------------------------------------------------------------------------------------------------------
+Action factor: attentional_action
+
+States:
+0 = focus_on_bar1
+1 = focus_on_bar2
+2 = report_avg
+
+---------------------------------------------------------------------------------------------------------------
+Reminder:
+D = P(states_0) # first prior of beliefs (start of the inference cycle)
+C = log P(observation) # What we want to see
+B = P(state_{t+1} | state_t, u_t) # Dependency on both the previous state and action
+A = P(observation_t | state_t) # What we observe now depends on the current hidden state only

@@ -1,0 +1,232 @@
+Good. This is the right moment to formalize it.
+
+Below is a **clean, structured list of tunable parameters** in your current pipeline, grouped by subsystem, with **plain explanations** and **why AIF should tune them**.
+
+No fluff.
+
+---
+
+## 1️⃣ OCR (Tesseract) parameters
+
+These affect **text extraction quality**, which directly affects ROI definition and label–value mapping.
+
+### `psm` (Page Segmentation Mode)
+
+* **What it controls:**
+  How Tesseract segments text (single block, sparse text, lines, etc.)
+* **Typical values:** `3, 6, 11`
+* **Failure mode:**
+
+  * Too rigid → misses labels
+  * Too loose → garbage tokens
+* **Why AIF tunes it:**
+  Different charts have radically different text layouts.
+
+---
+
+### `min_confidence`
+
+* **What it controls:**
+  Confidence threshold for keeping OCR tokens
+* **Typical values:** `20–80`
+* **Failure mode:**
+
+  * Too high → drops valid labels
+  * Too low → noise corrupts grouping
+* **Why AIF tunes it:**
+  Precision–recall tradeoff depends on image quality.
+
+---
+
+### `fix_vertical_text` (boolean)
+
+* **What it controls:**
+  Whether vertical text (y-axis label) is corrected
+* **Failure mode:**
+  If off → y-axis label is gibberish
+* **Why AIF tunes it:**
+  Some plots don’t have vertical text at all.
+
+---
+
+### `vertical_aspect_ratio`
+
+* **What it controls:**
+  Threshold to classify text as “vertical”
+* **Failure mode:**
+  Misclassifies tall numbers or symbols
+* **Why AIF tunes it:**
+  Depends on font, DPI, rotation.
+
+---
+
+## 2️⃣ OpenCV primitive detection parameters
+
+These control **what geometry is even seen**.
+
+### `min_line_length`
+
+* **What it controls:**
+  Minimum length (pixels) of detected lines
+* **Failure mode:**
+
+  * Too large → axes disappear
+  * Too small → noise lines appear
+* **Why AIF tunes it:**
+  Image resolution varies wildly.
+
+---
+
+### `hough_threshold`
+
+* **What it controls:**
+  Votes required to accept a Hough line
+* **Failure mode:**
+
+  * Too high → no axes
+  * Too low → clutter
+* **Why AIF tunes it:**
+  Contrast and noise are unknown a priori.
+
+---
+
+### `angle_tol_deg`
+
+* **What it controls:**
+  Allowed deviation from horizontal/vertical
+* **Failure mode:**
+
+  * Too strict → tilted axes rejected
+  * Too loose → diagonal junk accepted
+* **Why AIF tunes it:**
+  Screenshots, scans, and perspective distortions exist.
+
+---
+
+### `min_contour_area` (if used)
+
+* **What it controls:**
+  Minimum area to consider a contour a bar
+* **Failure mode:**
+
+  * Too large → small bars lost
+  * Too small → labels mistaken as bars
+* **Why AIF tunes it:**
+  Scale-dependent.
+
+---
+
+### `min_bar_extent`
+
+* **What it controls:**
+  Fraction of plot height required to count as a bar
+* **Failure mode:**
+  Misses short bars or outliers
+* **Why AIF tunes it:**
+  Distribution-dependent.
+
+---
+
+## 3️⃣ Text-grouping & ROI parameters
+
+These are **critical** and often overlooked.
+
+### `group_tol`
+
+* **What it controls:**
+  Tolerance when grouping OCR boxes into bands
+* **Failure mode:**
+
+  * Too small → fragmented bands
+  * Too large → title merges with ticks
+* **Why AIF tunes it:**
+  Font size and spacing vary.
+
+---
+
+### ROI bounds derived from OCR
+
+* `y_tick_right`
+* `title_lower`
+* `x_tick_upper`
+
+These are **not parameters**, but **latent variables inferred from OCR**.
+
+* **Failure mode:**
+  Bad OCR → bad ROI → OpenCV failure
+* **Why AIF matters:**
+  These are exactly where belief updating should occur.
+
+---
+
+## 4️⃣ Inference-stage parameters (axes + bars)
+
+### Axis orientation tolerance
+
+* Implicit in angle filtering
+* Affects whether a line is classified as x- or y-axis
+
+---
+
+### Bar-to-axis association tolerance
+
+* Used when associating bars with axes
+* Affects bar height computation
+
+---
+
+## 5️⃣ What these parameters *are* in AIF terms
+
+This matters conceptually.
+
+These parameters are **not**:
+
+* observations
+* hidden states
+* actions (yet)
+
+They are best described as:
+
+### 👉 **Perceptual precision / sensor calibration parameters**
+
+In AIF language:
+
+* They control the **likelihood mapping**
+* AIF adjusts them to minimize expected free energy
+* They sit *between* raw pixels and symbolic beliefs
+
+You can think of them as:
+
+> “Knobs that define how the agent sees.”
+
+---
+
+## 6️⃣ What AIF will eventually do with them
+
+Later, your agent will:
+
+* Propose parameter settings (actions)
+* Observe downstream success/failure
+* Update beliefs over parameter regimes
+* Prefer settings that yield coherent structure
+
+That is **legitimate active inference**, not a hack.
+
+---
+
+## Bottom line (no sugar-coating)
+
+You now have:
+
+* A clear parameter surface
+* Clear failure modes
+* A principled role for AIF
+
+Next logical step:
+
+> **Define a success metric** (axes found, bars counted, label alignment)
+
+Only then should AIF start tuning.
+
+You’re on solid ground.
+

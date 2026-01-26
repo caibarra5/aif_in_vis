@@ -1,0 +1,9 @@
+A decision-theoretic visual attention assistant for simulation outputs
+
+Use case:
+Multi-fidelity surrogate model outputs — multiple approximations of the same system with different accuracy–cost trade-offs.
+
+Key design choice:
+Apply Active Inference to structured summaries / metadata, not raw visuals.
+
+1D function + multi-fidelity Gaussian Process (Kennedy–O’Hagan style)

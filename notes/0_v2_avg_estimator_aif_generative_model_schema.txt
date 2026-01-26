@@ -1,0 +1,232 @@
+START-OVER MODEL SPEC (COPY/PASTE)
+
+============================================================
+0) ONE INDEXING RULE FOR EVERYTHING
+============================================================
+- Observation modalities: 0 = NULL always
+- Hidden state factors: 0-indexed real states (no NULL needed)
+  EXCEPT "report_choice" where 0 = NULL (“no report selected”)
+- When an observation refers to a real bin index k (0-indexed),
+  the observed symbol is k+1 (because 0 is reserved for NULL).
+
+============================================================
+1) DISCRETIZATION (KEEP COARSE/FINE ABSTRACTION)
+============================================================
+Let:
+  n_ticks   = number of tick intervals on y-axis
+  n_fine    = 15   fine bins per tick interval
+  n_coarse  = 5    coarse bins per tick interval
+
+Total bins:
+  Nfine   = n_ticks * n_fine        (fine global bins per bar)
+  Ncoarse = n_ticks * n_coarse      (coarse global bins per bar)
+
+Global index encoding for any resolution:
+  global_bin = tick_idx * n_subbins + subbin_idx
+where:
+  tick_idx   in {0..n_ticks-1}
+  subbin_idx in {0..n_subbins-1}
+
+Use:
+  - for fine bins:   n_subbins = 15
+  - for coarse bins: n_subbins = 5
+
+============================================================
+2) HIDDEN STATE FACTORS (4 TOTAL)
+============================================================
+Ns = [Nfine, Nfine, 3, (Ncoarse+1)]
+
+Factor s0: bar1_fine
+  #states: Nfine
+  indices: 0..Nfine-1
+  meaning: true fine bin for bar 1
+
+Factor s1: bar2_fine
+  #states: Nfine
+  indices: 0..Nfine-1
+  meaning: true fine bin for bar 2
+
+Factor s2: attention  (CONTROLLED)
+  #states: 3
+  indices:
+    0 = focus_bar1
+    1 = focus_bar2
+    2 = report_avg
+
+Factor s3: report_choice (CONTROLLED)
+  #states: Ncoarse + 1
+  indices:
+    0 = NULL (no report selected)
+    1..Ncoarse = reported_avg_coarse_bin
+      (reported coarse global bin = report_choice - 1)
+
+============================================================
+3) OBSERVATION MODALITIES (3 TOTAL)
+============================================================
+No = [Ncoarse+1, Ncoarse+1, 4]
+
+Modality o0: bar1_coarse_obs
+  #outcomes: Ncoarse + 1
+  indices:
+    0 = NULL
+    1..Ncoarse = observed bar1 coarse global bin
+      (coarse global bin = o0 - 1)
+
+Modality o1: bar2_coarse_obs
+  #outcomes: Ncoarse + 1
+  indices:
+    0 = NULL
+    1..Ncoarse = observed bar2 coarse global bin
+      (coarse global bin = o1 - 1)
+
+Modality o2: avg_feedback
+  #outcomes: 4
+  indices:
+    0 = NULL
+    1 = not_close_at_all
+    2 = close
+    3 = very_close
+
+============================================================
+4) ACTIONS (pymdp CONTROL FACTORS)
+============================================================
+In pymdp: actions control hidden-state transitions via B.
+
+Control factors (indices into hidden state factors):
+  control_fac_idx = [2, 3]
+  (attention is factor 2, report_choice is factor 3)
+
+num_controls must align with Ns length:
+  num_controls = [1, 1, 3, (Ncoarse+1)]
+
+Meaning:
+  - s0, s1 uncontrollable => control dimension 1
+  - s2 (attention) has 3 actions
+  - s3 (report_choice) has (Ncoarse+1) actions
+
+At runtime:
+  agent.sample_action() returns something like [u_attn, u_rep]
+where:
+  u_attn in {0,1,2}
+  u_rep  in {0..Ncoarse}
+
+============================================================
+5) A, B, C, D TENSOR SHAPES + INDEX MEANING
+============================================================
+
+--------------------
+A (likelihood)
+--------------------
+A = [A0, A1, A2]
+
+Shapes:
+  A0: (No0, Ns0, Ns1, Ns2, Ns3)
+    = (Ncoarse+1, Nfine, Nfine, 3, Ncoarse+1)
+
+  A1: same shape as A0
+
+  A2: (No2, Ns0, Ns1, Ns2, Ns3)
+    = (4, Nfine, Nfine, 3, Ncoarse+1)
+
+A0: bar1_coarse_obs model
+  - If attention != focus_bar1 (0): output NULL with prob 1
+  - If attention == 0:
+      observe a truncated discretized Gaussian over coarse bins
+      centered at the coarse bin implied by bar1_fine.
+
+How to map bar1_fine (global fine idx) -> coarse global bin:
+  tick        = fine_idx // n_fine
+  fine_within = fine_idx %  n_fine
+  coarse_within = floor( fine_within / n_fine * n_coarse )
+  coarse_global = tick * n_coarse + coarse_within   (0..Ncoarse-1)
+
+Observed symbol:
+  o0 = coarse_global + 1   (since 0 is NULL)
+
+A1: bar2_coarse_obs model
+  - Same as A0 but gated by attention == focus_bar2 (1)
+  - Uses bar2_fine for the center.
+
+A2: avg_feedback model
+  - If attention != report_avg (2): output NULL with prob 1
+  - Else if report_choice == 0: output NULL (no report selected)
+  - Else compute how close report is to TRUE AVG implied by (bar1_fine, bar2_fine)
+
+Need deterministic mapping:
+  (bar1_fine, bar2_fine) -> true_avg_coarse_global in 0..Ncoarse-1
+
+Then compare:
+  report_bin = report_choice - 1
+
+Compute tick/coarse parts:
+  tick_true   = true_avg_coarse_global // n_coarse
+  tick_rep    = report_bin             // n_coarse
+  coarse_true = true_avg_coarse_global %  n_coarse
+  coarse_rep  = report_bin             %  n_coarse
+
+Feedback rule:
+  if tick_rep != tick_true:
+      o2 = 1  (not_close_at_all)
+  else if coarse_rep == coarse_true:
+      o2 = 3  (very_close)
+  else:
+      o2 = 2  (close)
+
+--------------------
+B (transitions)
+--------------------
+B = [B0, B1, B2, B3]
+
+B0: bar1_fine identity (uncontrollable)
+  shape: (Nfine, Nfine, 1)
+
+B1: bar2_fine identity (uncontrollable)
+  shape: (Nfine, Nfine, 1)
+
+B2: attention "set attention" (controllable)
+  shape: (3, 3, 3)
+  rule: B2[next_attn, prev_attn, u_attn] = 1 if next_attn == u_attn
+
+B3: report_choice "set report" (controllable)
+  shape: (Ncoarse+1, Ncoarse+1, Ncoarse+1)
+  rule: B3[next_rep, prev_rep, u_rep] = 1 if next_rep == u_rep
+
+--------------------
+C (preferences)
+--------------------
+Only avg_feedback needs strong preferences.
+
+C[2] is length 4:
+  C_fb[0] =  0.0   (NULL neutral)  [or slightly negative like -0.1 if needed]
+  C_fb[1] = -6.0   (not_close_at_all bad)
+  C_fb[2] = +1.0   (close mildly good)
+  C_fb[3] = +6.0   (very_close very good)
+
+C[0], C[1] can be zeros (neutral).
+
+--------------------
+D (priors)
+--------------------
+D[0]: bar1_fine prior
+  - uniform over 0..Nfine-1 OR weakly informed by CV
+
+D[1]: bar2_fine prior
+  - uniform OR weakly informed by CV
+
+D[2]: attention prior
+  - uniform over {0,1,2} OR fixed to focus_bar1 to start
+
+D[3]: report_choice prior
+  - point mass at 0 (NULL report):
+    D[3][0] = 1.0 and others 0.0
+
+============================================================
+6) WHAT CHANGED (WHY THIS IS "EMERGENT")
+============================================================
+- Removed "enough_info_to_report_avg" (that was scaffolding).
+- Added "report_choice" so feedback depends on what the agent reports.
+- Attention gates which modality is informative.
+- This creates real pressure: to get "very_close", it must reduce uncertainty
+  by attending before choosing a report bin.
+
+END SPEC
