@@ -193,6 +193,36 @@ def interpret_obs(obs):
     parts.append(f"o2(feedback)={feedback_to_str(o2)}")
     return ", ".join(parts)
 
+def save_heatmap_time_state(
+    qs_over_time,
+    outpath: Path,
+    title: str,
+    xlabel: str = "time",
+    ylabel: str = "state index",
+):
+    """
+    qs_over_time: list of (Nstate,) probability vectors
+    Produces a heatmap with y=state, x=time
+    """
+    M = np.stack(qs_over_time, axis=1)  # shape: (Nstate, T)
+
+    outpath.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(10, 6))
+    plt.imshow(
+        M,
+        aspect="auto",
+        origin="lower",
+        interpolation="nearest",
+    )
+    plt.colorbar(label="probability")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(outpath, dpi=200)
+    plt.close()
+
 # -------------------------------------------------
 # Main
 # -------------------------------------------------
@@ -315,6 +345,13 @@ def main():
 
     trace = []
 
+    # -----------------------------------------
+    # Storage for heatmaps (time x state)
+    # -----------------------------------------
+
+    qs_over_time = [[] for _ in range(len(agent.qs))]
+
+
     for t in range(T):
         print(f"\n--- timestep {t} ---")
         print("Observation:", interpret_obs(model_obs))
@@ -376,6 +413,10 @@ def main():
             G = np.asarray(G, dtype=float)
             diag["G_top_best"] = [(int(i), float(G[i])) for i in np.argsort(G)[:10]]
 
+        for f in range(len(qs)):
+            qs_over_time[f].append(qs[f].copy())
+
+
         # 4) Save posterior plots (bar1_fine and bar2_fine) to their own folders
         b1cg = diag["obs_decoded"]["bar1_cg"]
         b2cg = diag["obs_decoded"]["bar2_cg"]
@@ -409,6 +450,21 @@ def main():
 
     print(f"\nSaved trace to: {TRACE_PATH.resolve()}")
     print(f"Saved posterior plots under: {PLOTS_DIR.resolve()}")
+
+    state_names = [
+        "bar1_fine",
+        "bar2_fine",
+        "attention",
+        "report_choice",
+    ]
+
+    for f, name in enumerate(state_names):
+        save_heatmap_time_state(
+            qs_over_time[f],
+            PLOTS_DIR / "heatmaps" / f"{name}_time_heatmap.png",
+            title=f"q({name}) over time",
+        )
+
 
     print("\nDone.")
 
