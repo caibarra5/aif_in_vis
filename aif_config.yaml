@@ -1,0 +1,5 @@
+--Indented block
+bargraph_path: 'input_python_scripts/two_bar_chart.png'
+hidden_states_heights_resolution: 100
+observations_heights_resolution: 4
+output_dir: './very_fine_hidden_states'

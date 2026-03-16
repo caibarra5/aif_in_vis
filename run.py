@@ -331,7 +331,8 @@ def main():
     # -------------------------------------------------
     # 5) Active inference loop
     # -------------------------------------------------
-    T = 8
+    # T = 40
+    T = 20
 
     # Start with all NULL observations (0 for each modality in new plan)
     model_obs = [0, 0, 0]

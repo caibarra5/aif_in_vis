@@ -38,6 +38,7 @@ def discrete_trunc_gaussian_probs(center, K, sigma):
     If sigma is None or <= 0 -> delta at center.
     """
     center = int(center)
+    sigma = 2.5
     if sigma is None or sigma <= 0:
         p = np.zeros(K, dtype=float)
         p[center] = 1.0

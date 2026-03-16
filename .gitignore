@@ -9,10 +9,9 @@
 
 # --- keep python files in these two directories ---
 !module_aif_bar_reader/**/*.py
-!test_scripts/**/*.py
 
 # --- optional: keep small repo metadata/docs ---
 !.gitignore
 !README.txt
 !LICENSE
-
+!aif_config.yaml
